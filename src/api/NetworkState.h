@@ -27,6 +27,7 @@
 
 #include <array>
 #include <vector>
+#include <map>
 
 
 class SubmitResult;
@@ -41,11 +42,14 @@ public:
     uint32_t avgTime() const;
     uint32_t latency() const;
     void add(const SubmitResult &result, const char *error);
+    void addGPUComputeError(int gpuID);
     void setPool(const char *host, int port, const char *ip);
     void stop();
 
     char pool[256];
     std::array<uint64_t, 10> topDiff { { } };
+    std::map<std::string, int> shareErrors;
+    std::map<int, int> gpuComputeErrors; //gpuID, gpuComputeErrorsCount
     uint32_t diff;
     uint64_t accepted;
     uint64_t failures;

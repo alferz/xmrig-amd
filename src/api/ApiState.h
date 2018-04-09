@@ -61,6 +61,8 @@ private:
     double m_highestHashrate;
     double m_totalHashrate[3];
     int m_threads;
+    int m_gpus;
+    int sys_starttime;
     NetworkState m_network;
     std::vector<OclThread> m_gpuThreads;
 };

@@ -54,6 +54,8 @@ Network::Network(const Options *options) :
 
     const std::vector<Url*> &pools = options->pools();
 
+    LOG_NOTICE("Pool size %zi", pools.size());
+    
     if (pools.size() > 1) {
         m_strategy = new FailoverStrategy(pools, Platform::userAgent(), this);
     }
@@ -126,6 +128,10 @@ void Network::onJobResult(const JobResult &result)
     m_strategy->submit(result);
 }
 
+void Network::onComputeError(int gpuID)
+{
+    m_state.addGPUComputeError(gpuID);
+}
 
 void Network::onPause(IStrategy *strategy)
 {
@@ -152,21 +158,21 @@ void Network::onResultAccepted(Client *client, const SubmitResult &result, const
                  m_state.accepted, m_state.rejected, result.diff, error, result.elapsed);
     }
     else {
-        LOG_INFO(m_options->colors() ? "\x1B[01;32maccepted\x1B[0m (%" PRId64 "/%" PRId64 ") diff \x1B[01;37m%u\x1B[0m \x1B[01;30m(%" PRIu64 " ms)"
-                                     : "accepted (%" PRId64 "/%" PRId64 ") diff %u (%" PRIu64 " ms)",
-                 m_state.accepted, m_state.rejected, result.diff, result.elapsed);
+        LOG_INFO(m_options->colors() ? "\x1B[01;32maccepted\x1B[0m (%" PRId64 "/%" PRId64 ") actual diff \x1B[01;32m%u\x1B[0m"
+                                     : "accepted (%" PRId64 "/%" PRId64 ") actual diff %u",
+                 m_state.accepted, m_state.rejected, result.actualDiff);
     }
 }
 
 
 void Network::setJob(Client *client, const Job &job)
 {
-    if (m_options->colors()) {
-        LOG_INFO("\x1B[01;35mnew job\x1B[0m from \x1B[01;37m%s:%d\x1B[0m diff \x1B[01;37m%d", client->host(), client->port(), job.diff());
+    if (m_state.diff < job.diff() || m_state.diff > job.diff()) {
+        LOG_INFO("\x1B[01;35mnew diff\x1B[0m from \x1B[01;37m%s:%d\x1B[0m diff \x1B[01;37m%d", client->host(), client->port(), job.diff());
     }
-    else {
-        LOG_INFO("new job from %s:%d diff %d", client->host(), client->port(), job.diff());
-    }
+    // else {
+        // LOG_INFO("new job from %s:%d diff %d", client->host(), client->port(), job.diff());
+    // }
 
     m_state.diff = job.diff();
     Workers::setJob(job);

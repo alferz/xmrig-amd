@@ -26,6 +26,7 @@
 #include "net/Client.h"
 #include "net/strategies/FailoverStrategy.h"
 #include "Options.h"
+#include "log/Log.h"
 
 
 FailoverStrategy::FailoverStrategy(const std::vector<Url*> &urls, const char *agent, IStrategyListener *listener) :
@@ -143,6 +144,6 @@ void FailoverStrategy::add(const Url *url, const char *agent)
     Client *client = new Client((int) m_pools.size(), agent, this);
     client->setUrl(url);
     client->setRetryPause(Options::i()->retryPause() * 1000);
-
+    LOG_INFO("\x1B[01;37mFAILOVER STRATEGY: added pool %s\x1B[01", url);
     m_pools.push_back(client);
 }

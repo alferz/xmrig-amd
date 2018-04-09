@@ -22,8 +22,10 @@
  */
 
 #include <cmath>
+#include <ctime>
 #include <string.h>
 #include <uv.h>
+#include <sstream>
 
 #if _WIN32
 #   include "winsock2.h"
@@ -63,7 +65,9 @@ static inline double normalize(double d)
 ApiState::ApiState()
 {
     m_threads  = (int) Options::i()->threads().size();
+    m_gpus = 0;
     m_hashrate = new double[m_threads * 3]();
+    sys_starttime = time(0);
 
     memset(m_totalHashrate, 0, sizeof(m_totalHashrate));
     memset(m_workerId, 0, sizeof(m_workerId));
@@ -76,9 +80,16 @@ ApiState::ApiState()
     }
 
     genId();
-
+    
+    int currentIndex = -1;
     for (const OclThread *thread : Options::i()->threads()) {
         m_gpuThreads.push_back(*thread);
+        if(currentIndex != thread->index()){
+            currentIndex = thread->index();
+            m_network.gpuComputeErrors[m_gpus] = 0;
+            m_gpus++;
+        }
+            
     }
 }
 
@@ -191,7 +202,8 @@ void ApiState::getHashrate(rapidjson::Document &doc) const
     rapidjson::Value hashrate(rapidjson::kObjectType);
     rapidjson::Value total(rapidjson::kArrayType);
     rapidjson::Value threads(rapidjson::kArrayType);
-
+    
+    double totalHR = m_totalHashrate[0];
     for (int i = 0; i < 3; ++i) {
         total.PushBack(normalize(m_totalHashrate[i]), allocator);
     }
@@ -204,8 +216,10 @@ void ApiState::getHashrate(rapidjson::Document &doc) const
 
         threads.PushBack(thread, allocator);
     }
-
+    
+    double avgHR = totalHR / m_gpus;
     hashrate.AddMember("total",   total, allocator);
+    hashrate.AddMember("average", normalize(avgHR), allocator);
     hashrate.AddMember("highest", normalize(m_highestHashrate), allocator);
     hashrate.AddMember("threads", threads, allocator);
     doc.AddMember("hashrate",     hashrate, allocator);
@@ -236,6 +250,10 @@ void ApiState::getMiner(rapidjson::Document &doc) const
     doc.AddMember("algo",         rapidjson::StringRef(Options::i()->algoName()), allocator);
     doc.AddMember("hugepages",    false, allocator);
     doc.AddMember("donate_level", Options::i()->donateLevel(), allocator);
+    doc.AddMember("num_gpus",     m_gpus, allocator);
+    
+    int now = time(0);
+    doc.AddMember("miner_uptime", (now-sys_starttime), allocator);
 }
 
 
@@ -247,6 +265,7 @@ void ApiState::getResults(rapidjson::Document &doc) const
 
     results.AddMember("diff_current",  m_network.diff, allocator);
     results.AddMember("shares_good",   m_network.accepted, allocator);
+    results.AddMember("shares_bad",    m_network.rejected, allocator);
     results.AddMember("shares_total",  m_network.accepted + m_network.rejected, allocator);
     results.AddMember("avg_time",      m_network.avgTime(), allocator);
     results.AddMember("hashes_total",  m_network.total, allocator);
@@ -257,7 +276,27 @@ void ApiState::getResults(rapidjson::Document &doc) const
     }
 
     results.AddMember("best",      best, allocator);
-    results.AddMember("error_log", rapidjson::Value(rapidjson::kArrayType), allocator);
+    
+    rapidjson::Value errorLog(rapidjson::kObjectType);
+    for (auto const& error : m_network.shareErrors){
+        rapidjson::Value errorText;
+        errorText.SetString(error.first.c_str(), error.first.length(), allocator);
+        errorLog.AddMember(errorText, error.second, allocator);
+    }
+    results.AddMember("error_log", errorLog, allocator);
+    
+    rapidjson::Value gpuComputeErrors(rapidjson::kObjectType);
+    for (auto const& gpuError : m_network.gpuComputeErrors){
+        std::stringstream ss;//create a stringstream
+        ss << gpuError.first;//add number to the stream
+        std::string gpuNum = ss.str();//return a string with the contents of the stream
+        
+        
+        rapidjson::Value gpuNumVal;
+        gpuNumVal.SetString(gpuNum.c_str(), gpuNum.length(), allocator);
+        gpuComputeErrors.AddMember(gpuNumVal, gpuError.second, allocator);
+    }
+    results.AddMember("gpuComputeErrors", gpuComputeErrors, allocator);
 
     doc.AddMember("results", results, allocator);
 }

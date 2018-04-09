@@ -24,6 +24,7 @@
 
 #include <algorithm>
 #include <string.h>
+#include <sstream>
 #include <uv.h>
 
 
@@ -77,6 +78,7 @@ void NetworkState::add(const SubmitResult &result, const char *error)
 {
     if (error) {
         rejected++;
+        shareErrors[error]++;
         return;
     }
 
@@ -92,6 +94,15 @@ void NetworkState::add(const SubmitResult &result, const char *error)
     m_latency.push_back(result.elapsed > 0xFFFF ? 0xFFFF : (uint16_t) result.elapsed);
 }
 
+void NetworkState::addGPUComputeError(int gpuID){
+    //std::stringstream ss;//create a stringstream
+    //ss << gpuID;//add number to the stream
+    //std::string gpuNum = ss.str();//return a string with the contents of the stream
+    //std::string errorText;
+    //errorText = "GPU#" + gpuNum + " COMPUTE ERROR";
+    //shareErrors[errorText]++;
+    gpuComputeErrors[gpuID]++;
+}
 
 void NetworkState::setPool(const char *host, int port, const char *ip)
 {

@@ -76,6 +76,14 @@ double Hashrate::calc(size_t ms) const
     return result;
 }
 
+double Hashrate::calc2() const
+{
+    double result = 13.337;
+
+
+    return result;
+}
+
 
 double Hashrate::calc(size_t threadId, size_t ms) const
 {
@@ -136,14 +144,18 @@ void Hashrate::add(size_t threadId, uint64_t count, uint64_t timestamp)
 }
 
 
-void Hashrate::print()
+void Hashrate::print(int numGPUs)
 {
+    char avg[8];
     char num1[8];
     char num2[8];
     char num3[8];
     char num4[8];
+    
+    double avgHR = calc(ShortInterval) / numGPUs;
 
-    LOG_INFO(Options::i()->colors() ? "\x1B[01;37mspeed\x1B[0m 10s/60s/15m \x1B[01;36m%s\x1B[0m \x1B[22;36m%s %s \x1B[01;36mH/s\x1B[0m max: \x1B[01;36m%s H/s" : "speed 10s/60s/15m %s %s %s H/s max: %s H/s",
+    LOG_INFO(Options::i()->colors() ? "\x1B[01;37mavg speed\x1B[0m \x1B[01;36m%s\x1B[0m 10s/60s/15m \x1B[01;36m%s\x1B[0m \x1B[22;36m%s %s \x1B[01;36mH/s\x1B[0m" : "speed 10s/60s/15m %s %s %s H/s",
+             format(avgHR,  avg, sizeof(avg)),
              format(calc(ShortInterval),  num1, sizeof(num1)),
              format(calc(MediumInterval), num2, sizeof(num2)),
              format(calc(LargeInterval),  num3, sizeof(num3)),
@@ -151,7 +163,30 @@ void Hashrate::print()
              );
 }
 
+void Hashrate::printGPU(std::vector<size_t> threads, int gpuId)
+{
+    char num1[8];
+    char num2[8];
+    char num3[8];
+    
+    double shortNum = 0;
+    double mediumNum = 0;
+    double longNum = 0;
+    for(size_t thread : threads){
+        shortNum += calc(thread, ShortInterval);
+        mediumNum += calc(thread, MediumInterval);
+        longNum += calc(thread, LargeInterval);
+    }
 
+    LOG_INFO(Options::i()->colors() ? "\x1B[01;37mGPU %d\x1B[0m 10s/60s/15m \x1B[01;36m%s\x1B[0m \x1B[22;36m%s %s \x1B[01;36mH/s" : "speed 10s/60s/15m %s %s %s H/s",
+        gpuId,
+        format(shortNum, num1, sizeof(num1)),
+        format(mediumNum, num2, sizeof(num2)),
+        format(longNum, num3, sizeof(num3))
+    );
+}
+
+//This function obsolete. Prints individual threads but dont want that.
 void Hashrate::print(size_t threadId, int gpuId)
 {
     char num1[8];

@@ -22,6 +22,7 @@
  */
 
 #include <cmath>
+#include <map>
 
 #ifdef __GNUC__
 #   include <mm_malloc.h>
@@ -137,14 +138,53 @@ Job Workers::job()
 
 void Workers::printHashrate(bool detail)
 {
+    std::map<int, std::vector<size_t>> gpuThreads;  
+    for (const OclThread *thread : Options::i()->threads()) {
+        gpuThreads[thread->index()].push_back(thread->threadId());
+    }
+    
     if (detail) {
-       for (const OclThread *thread : Options::i()->threads()) {
-            m_hashrate->print(thread->threadId(), thread->index());
+        for (auto const& gpu : gpuThreads){
+            m_hashrate->printGPU(gpu.second, gpu.first);
         }
     }
+    
+    // std::vector<int> gpus;
+    // int currentIndex = -1;
+    // std::vector<size_t> threads;  
+    // int totalHashRate; 
+    // for (const OclThread *thread : Options::i()->threads()) {
+        // if(currentIndex == -1) {
+            // currentIndex = thread->index();
+            // threads.push_back(thread->threadId());
+        // }
+        // else if(currentIndex == thread->index()){
+            // threads.push_back(thread->threadId());
+        // }
+        // else {
+            // if (detail)
+                // m_hashrate->printGPU(threads, currentIndex);
+            // currentIndex = thread->index();
+            // threads.clear();
+            // threads.push_back(thread->threadId());
+        // }        
+    // }
+    // if (detail)
+        // m_hashrate->printGPU(threads, currentIndex);
 
-    m_hashrate->print();
+    m_hashrate->print(gpuThreads.size());
 }
+
+// void Workers::printHashrateOLD(bool detail)
+// {
+    // if (detail) {
+       // for (const OclThread *thread : Options::i()->threads()) {
+            // m_hashrate->print(thread->threadId(), thread->index());
+        // }
+    // }
+
+    // m_hashrate->print();
+// }
 
 
 void Workers::setEnabled(bool enabled)
@@ -254,7 +294,14 @@ void Workers::onResult(uv_async_t *handle)
             }
 
             if (baton->errors > 0 && !baton->jobs.empty()) {
-                LOG_ERR("GPU #%d COMPUTE ERROR", baton->jobs[0].threadId());
+                int gpuNum = -1;
+                for (const OclThread *thread : Options::i()->threads()) {
+                    if (thread->threadId() == baton->jobs[0].threadId()){
+                        gpuNum = thread->index();
+                    }
+                }
+                m_listener->onComputeError(gpuNum);
+                LOG_ERR("GPU #%d (Thread %d) COMPUTE ERROR", gpuNum, baton->jobs[0].threadId());
             }
 
             delete baton;
@@ -265,7 +312,11 @@ void Workers::onResult(uv_async_t *handle)
 
 void Workers::onReport(uv_timer_t *handle)
 {
-    m_hashrate->print();
+    std::map<int, std::vector<size_t>> gpuThreads;  
+    for (const OclThread *thread : Options::i()->threads()) {
+        gpuThreads[thread->index()].push_back(thread->threadId());
+    }
+    m_hashrate->print(gpuThreads.size());
 }
 
 
