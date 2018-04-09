@@ -90,7 +90,9 @@ App::App(int argc, char **argv) :
 
     m_network = new Network(m_options);
 
-    uv_signal_init(uv_default_loop(), &m_signal);
+    uv_signal_init(uv_default_loop(), &m_sigHUP);
+    uv_signal_init(uv_default_loop(), &m_sigINT);
+    uv_signal_init(uv_default_loop(), &m_sigTERM);
 }
 
 
@@ -109,16 +111,16 @@ App::~App()
 int App::exec()
 {
     if (!m_options) {
-        return 0;
+        return 2;
     }
 
-    uv_signal_start(&m_signal, App::onSignal, SIGHUP);
-    uv_signal_start(&m_signal, App::onSignal, SIGTERM);
-    uv_signal_start(&m_signal, App::onSignal, SIGINT);
+    uv_signal_start(&m_sigHUP,  App::onSignal, SIGHUP);
+    uv_signal_start(&m_sigINT,  App::onSignal, SIGINT);
+    uv_signal_start(&m_sigTERM, App::onSignal, SIGTERM);
 
     background();
 
-    if (!CryptoNight::init(m_options->algo(), m_options->algoVariant())) {
+    if (!CryptoNight::init(m_options->algorithm())) {
         LOG_ERR("\"%s\" hash self-test failed.", m_options->algoName());
         return 1;
     }
@@ -164,8 +166,10 @@ void App::onConsoleCommand(char command)
 
     case 'p':
     case 'P':
-        LOG_INFO(m_options->colors() ? "\x1B[01;33mpaused\x1B[0m, press \x1B[01;35mr\x1B[0m to resume" : "paused, press 'r' to resume");
-        Workers::setEnabled(false);
+        if (Workers::isEnabled()) {
+            LOG_INFO(m_options->colors() ? "\x1B[01;33mpaused\x1B[0m, press \x1B[01;35mr\x1B[0m to resume" : "paused, press 'r' to resume");
+            Workers::setEnabled(false);
+        }
         break;
 
     case 'r':

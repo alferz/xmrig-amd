@@ -42,6 +42,7 @@
 #include "workers/Hashrate.h"
 #include "workers/OclThread.h"
 #include "workers/Workers.h"
+#include "xmrig.h"
 
 
 bool Workers::m_active = false;
@@ -99,7 +100,7 @@ bool Workers::start(const std::vector<OclThread*> &threads)
 
     for (size_t i = 0; i < count; ++i) {
         const OclThread *thread = threads[i];
-        contexts[i] = GpuContext(thread->index(), thread->intensity(), thread->worksize());
+        contexts[i] = GpuContext(thread->index(), thread->intensity(), thread->worksize(), thread->stridedIndex(), thread->memChunk(), thread->isCompMode());
     }
 
     if (InitOpenCL(contexts.data(), count, Options::i()->platformIndex()) != OCL_ERR_SUCCESS) {
@@ -107,7 +108,7 @@ bool Workers::start(const std::vector<OclThread*> &threads)
     }
 
     for (size_t i = 0; i < count; ++i) {
-        Handle *handle = new Handle((int) i, threads[i], &contexts[i], (int) count, Options::i()->algo() == Options::ALGO_CRYPTONIGHT_LITE);
+        Handle *handle = new Handle((int) i, threads[i], &contexts[i], (int) count, Options::i()->algorithm());
         m_workers.push_back(handle);
         handle->start(Workers::onReady);
     }
@@ -203,10 +204,14 @@ void Workers::setEnabled(bool enabled)
 }
 
 
-void Workers::setJob(const Job &job)
+void Workers::setJob(const Job &job, bool donate)
 {
     uv_rwlock_wrlock(&m_rwlock);
     m_job = job;
+
+    if (donate) {
+        m_job.setPoolId(-1);
+    }
     uv_rwlock_wrunlock(&m_rwlock);
 
     m_active = true;

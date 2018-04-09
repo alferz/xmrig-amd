@@ -4,8 +4,8 @@
  * Copyright 2014      Lucas Jones <https://github.com/lucasjones>
  * Copyright 2014-2016 Wolf9466    <https://github.com/OhGodAPet>
  * Copyright 2016      Jay D Dee   <jayddee246@gmail.com>
- * Copyright 2016-2017 XMRig       <support@xmrig.com>
- *
+ * Copyright 2017-2018 XMR-Stak    <https://github.com/fireice-uk>, <https://github.com/psychocrypt>
+ * Copyright 2016-2018 XMRig       <https://github.com/xmrig>, <support@xmrig.com>
  *
  *   This program is free software: you can redistribute it and/or modify
  *   it under the terms of the GNU General Public License as published by
@@ -24,6 +24,11 @@
 #ifndef __OPTIONS_H__
 #define __OPTIONS_H__
 
+#ifdef _MSC_VER 
+//not #if defined(_WIN32) || defined(_WIN64) because we have strncasecmp in mingw
+#define strncasecmp _strnicmp
+#define strcasecmp _stricmp
+#endif
 
 #include <stdint.h>
 #include <vector>
@@ -31,6 +36,7 @@
 
 #include "amd/OclCLI.h"
 #include "rapidjson/fwd.h"
+#include "xmrig.h"
 
 
 class OclThread;
@@ -41,11 +47,6 @@ struct option;
 class Options
 {
 public:
-    enum Algo {
-        ALGO_CRYPTONIGHT,      /* CryptoNight (Monero) */
-        ALGO_CRYPTONIGHT_LITE, /* CryptoNight-Lite (AEON) */
-    };
-
     enum AlgoVariant {
         AV0_AUTO,
         AV1_AESNI,
@@ -69,14 +70,14 @@ public:
     inline const char *userAgent() const                  { return m_userAgent; }
     inline const std::vector<OclThread*> &threads() const { return m_threads; }
     inline const std::vector<Url*> &pools() const         { return m_pools; }
-    inline int algo() const                               { return m_algo; }
-    inline int algoVariant() const                        { return m_algoVariant; }
     inline int apiPort() const                            { return m_apiPort; }
     inline int donateLevel() const                        { return m_donateLevel; }
     inline int platformIndex() const                      { return m_platformIndex; }
     inline int printTime() const                          { return m_printTime; }
     inline int retries() const                            { return m_retries; }
     inline int retryPause() const                         { return m_retryPause; }
+    inline void setColors(bool colors)                    { m_colors = colors; }
+    inline xmrig::Algo algorithm() const                  { return m_algorithm; }
 
     inline static void release()                          { delete m_self; }
 
@@ -97,6 +98,7 @@ private:
     bool parseArg(int key, uint64_t arg);
     bool parseBoolean(int key, bool enable);
     Url *parseUrl(const char *arg) const;
+    void adjust();
     void parseConfig(const char *fileName);
     void parseJSON(const struct option *option, const rapidjson::Value &object);
     void parseThread(const rapidjson::Value &object);
@@ -116,8 +118,6 @@ private:
     char *m_configName;
     char *m_logFile;
     char *m_userAgent;
-    int m_algo;
-    int m_algoVariant;
     int m_apiPort;
     int m_donateLevel;
     int m_platformIndex;
@@ -127,6 +127,7 @@ private:
     OclCLI m_oclCLI;
     std::vector<OclThread*> m_threads;
     std::vector<Url*> m_pools;
+    xmrig::Algo m_algorithm;
 };
 
 #endif /* __OPTIONS_H__ */

@@ -4,8 +4,8 @@
  * Copyright 2014      Lucas Jones <https://github.com/lucasjones>
  * Copyright 2014-2016 Wolf9466    <https://github.com/OhGodAPet>
  * Copyright 2016      Jay D Dee   <jayddee246@gmail.com>
- * Copyright 2016-2017 XMRig       <support@xmrig.com>
- *
+ * Copyright 2017-2018 XMR-Stak    <https://github.com/fireice-uk>, <https://github.com/psychocrypt>
+ * Copyright 2016-2018 XMRig       <https://github.com/xmrig>, <support@xmrig.com>
  *
  *   This program is free software: you can redistribute it and/or modify
  *   it under the terms of the GNU General Public License as published by
@@ -33,8 +33,12 @@
 #endif
 
 
+#ifndef XMRIG_NO_HTTPD
+#   include <microhttpd.h>
+#endif
+
+
 #include "amd/OclGPU.h"
-#include "Cpu.h"
 #include "donate.h"
 #include "log/Log.h"
 #include "net/Url.h"
@@ -47,6 +51,7 @@
 #include "rapidjson/prettywriter.h"
 #include "version.h"
 #include "workers/OclThread.h"
+#include "xmrig.h"
 
 
 #ifndef ARRAY_SIZE
@@ -75,6 +80,7 @@ Options:\n\
       --opencl-platform=N   OpenCL platform index\n\
       --print-platforms     print available OpenCL platforms and exit\n\
       --no-color            disable colored output\n\
+      --variant             algorithm PoW variant\n\
       --donate-level=N      donate level, default 5%% (5 minutes in 100 minutes)\n\
       --user-agent          set custom user-agent string for pool\n\
   -B, --background          run the miner in the background\n\
@@ -111,6 +117,7 @@ static struct option const options[] = {
     { "log-file",         1, nullptr, 'l'  },
     { "nicehash",         0, nullptr, 1006 },
     { "no-color",         0, nullptr, 1002 },
+    { "variant",          1, nullptr, 1010 },
     { "opencl-affinity",  1, nullptr, 1401 },
     { "opencl-devices",   1, nullptr, 1402 },
     { "opencl-launch",    1, nullptr, 1403 },
@@ -153,6 +160,7 @@ static struct option const pool_options[] = {
     { "userpass",      1, nullptr, 'O'  },
     { "keepalive",     0, nullptr ,'k'  },
     { "nicehash",      0, nullptr, 1006 },
+    { "variant",       1, nullptr, 1010 },
     { 0, 0, 0, 0 }
 };
 
@@ -165,11 +173,10 @@ static struct option const api_options[] = {
 };
 
 
-static const char *algo_names[] = {
+static const char *algoNames[] = {
     "cryptonight",
-#   ifndef XMRIG_NO_AEON
-    "cryptonight-lite"
-#   endif
+    "cryptonight-lite",
+    "cryptonight-heavy"
 };
 
 
@@ -223,7 +230,7 @@ bool Options::save()
     doc.AddMember("background",   m_background, allocator);
     doc.AddMember("colors",       m_colors, allocator);
     doc.AddMember("donate-level", m_donateLevel, allocator);
-    doc.AddMember("log-file",     m_logFile ? rapidjson::Value(rapidjson::StringRef(algoName())).Move() : rapidjson::Value(rapidjson::kNullType).Move(), allocator);
+    doc.AddMember("log-file",     m_logFile ? rapidjson::Value(rapidjson::StringRef(logFile())).Move() : rapidjson::Value(rapidjson::kNullType).Move(), allocator);
     doc.AddMember("print-time",   m_printTime, allocator);
     doc.AddMember("retries",      m_retries, allocator);
     doc.AddMember("retry-pause",  m_retryPause, allocator);
@@ -253,17 +260,15 @@ bool Options::save()
     }
 
     rapidjson::Value pools(rapidjson::kArrayType);
-    char tmp[256];
 
     for (const Url *url : m_pools) {
         rapidjson::Value obj(rapidjson::kObjectType);
-        snprintf(tmp, sizeof(tmp) - 1, "%s:%d", url->host(), url->port());
-
-        obj.AddMember("url",       rapidjson::StringRef(tmp), allocator);
+        obj.AddMember("url",       rapidjson::StringRef(url->url()), allocator);
         obj.AddMember("user",      rapidjson::StringRef(url->user()), allocator);
         obj.AddMember("pass",      rapidjson::StringRef(url->password()), allocator);
         obj.AddMember("keepalive", url->isKeepAlive(), allocator);
         obj.AddMember("nicehash",  url->isNicehash(), allocator);
+        obj.AddMember("variant",   url->variant(), allocator);
 
         pools.PushBack(obj, allocator);
     }
@@ -296,7 +301,7 @@ bool Options::save()
 
 const char *Options::algoName() const
 {
-    return algo_names[m_algo];
+    return algoNames[m_algorithm];
 }
 
 
@@ -312,15 +317,14 @@ Options::Options(int argc, char **argv) :
     m_configName(nullptr),
     m_logFile(nullptr),
     m_userAgent(nullptr),
-    m_algo(0),
-    m_algoVariant(0),
     m_apiPort(0),
     m_donateLevel(kDonateLevel),
     m_platformIndex(0),
     m_printTime(60),
     m_retries(5),
     m_retryPause(5),
-    m_threads(0)
+    m_threads(0),
+    m_algorithm(xmrig::CRYPTONIGHT)
 {
     m_pools.push_back(new Url());
 
@@ -351,11 +355,7 @@ Options::Options(int argc, char **argv) :
         return;
     }
 
-    m_algoVariant = Cpu::hasAES() ? AV1_AESNI : AV3_SOFT_AES;
-
-    for (Url *url : m_pools) {
-        url->applyExceptions();
-    }
+    adjust();
 
     m_ready = true;
 }
@@ -473,6 +473,7 @@ bool Options::parseArg(int key, const char *arg)
     case 1007: /* --print-time */
     case 4000: /* --api-port */
     case 1400: /* --opencl-platform */
+    case 1010: /* --variant */
         return parseArg(key, strtol(arg, nullptr, 10));
 
     case 'B':  /* --background */
@@ -562,6 +563,10 @@ bool Options::parseArg(int key, uint64_t arg)
         m_printTime = (int) arg;
         break;
 
+    case 1010: /* --variant */
+        m_pools.back()->setVariant((int) arg);
+        break;
+
     case 1400: /* --opencl-platform */
         m_platformIndex = (int) arg;
         break;
@@ -629,6 +634,14 @@ Url *Options::parseUrl(const char *arg) const
 }
 
 
+void Options::adjust()
+{
+    for (Url *url : m_pools) {
+        url->adjust(m_algorithm);
+    }
+}
+
+
 void Options::parseConfig(const char *fileName)
 {
     rapidjson::Document doc;
@@ -686,7 +699,7 @@ void Options::parseJSON(const struct option *option, const rapidjson::Value &obj
     if (option->has_arg && value.IsString()) {
         parseArg(option->val, value.GetString());
     }
-    else if (option->has_arg && value.IsUint64()) {
+    else if (option->has_arg && value.IsInt64()) {
         parseArg(option->val, value.GetUint64());
     }
     else if (!option->has_arg && value.IsBool()) {
@@ -703,8 +716,8 @@ void Options::parseThread(const rapidjson::Value &object)
     thread->setWorksize(object["worksize"].GetUint());
 
     const rapidjson::Value &affinity = object["affine_to_cpu"];
-    if (affinity.IsInt()) {
-        thread->setAffinity(affinity.GetInt());
+    if (affinity.IsInt64()) {
+        thread->setAffinity(affinity.GetInt64());
     }
 
     m_threads.push_back(thread);
@@ -753,29 +766,27 @@ void Options::showVersion()
 
     printf("\nlibuv/%s\n", uv_version_string());
 
-//     const int cudaVersion = cuda_get_runtime_version();
-//     printf("CUDA/%d.%d\n", cudaVersion / 1000, cudaVersion % 100);
+#   ifndef XMRIG_NO_HTTPD
+    printf("libmicrohttpd/%s\n", MHD_get_version());
+#   endif
 }
 
 
 bool Options::setAlgo(const char *algo)
 {
-    for (size_t i = 0; i < ARRAY_SIZE(algo_names); i++) {
-        if (algo_names[i] && !strcmp(algo, algo_names[i])) {
-            m_algo = (int) i;
-            break;
-        }
+    if (strcasecmp(algo, "cryptonight-light") == 0) {
+        fprintf(stderr, "Algorithm \"cryptonight-light\" is deprecated, use \"cryptonight-lite\" instead\n");
 
-#       ifndef XMRIG_NO_AEON
-        if (i == ARRAY_SIZE(algo_names) - 1 && !strcmp(algo, "cryptonight-light")) {
-            m_algo = ALGO_CRYPTONIGHT_LITE;
-            break;
-        }
-#       endif
+        m_algorithm = xmrig::CRYPTONIGHT_LITE;
+        return true;
+    }
 
-        if (i == ARRAY_SIZE(algo_names) - 1) {
-            showUsage(1);
-            return false;
+    const size_t size = sizeof(algoNames) / sizeof((algoNames)[0]);
+
+    for (size_t i = 0; i < size; i++) {
+        if (algoNames[i] && strcasecmp(algo, algoNames[i]) == 0) {
+            m_algorithm = static_cast<xmrig::Algo>(i);
+            break;
         }
     }
 

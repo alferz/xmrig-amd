@@ -22,54 +22,40 @@
  *   along with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
-#ifndef __OCLWORKER_H__
-#define __OCLWORKER_H__
-
-#include <atomic>
+#ifndef __CRYPTONIGHT_MONERO_H__
+#define __CRYPTONIGHT_MONERO_H__
 
 
-#include "interfaces/IWorker.h"
-#include "net/Job.h"
-#include "net/JobResult.h"
-#include "xmrig.h"
+// VARIANT ALTERATIONS
+#ifndef XMRIG_ARM
+#   define VARIANT1_INIT(part) \
+    uint64_t tweak1_2_##part = 0; \
+    if (VARIANT > 0) { \
+        tweak1_2_##part = (*reinterpret_cast<const uint64_t*>(input + 35 + part * size) ^ \
+                          *(reinterpret_cast<const uint64_t*>(ctx->state##part) + 24)); \
+    }
+#else
+#   define VARIANT1_INIT(part) \
+    uint64_t tweak1_2_##part = 0; \
+    if (VARIANT > 0) { \
+        volatile const uint64_t a = *reinterpret_cast<const uint64_t*>(input + 35 + part * size); \
+        volatile const uint64_t b = *(reinterpret_cast<const uint64_t*>(ctx->state##part) + 24); \
+        tweak1_2_##part = a ^ b; \
+    }
+#endif
+
+#define VARIANT1_1(p) \
+    if (VARIANT > 0) { \
+        const uint8_t tmp = reinterpret_cast<const uint8_t*>(p)[11]; \
+        static const uint32_t table = 0x75310; \
+        const uint8_t index = (((tmp >> 3) & 6) | (tmp & 1)) << 1; \
+        ((uint8_t*)(p))[11] = tmp ^ ((table >> index) & 0x30); \
+    }
+
+#define VARIANT1_2(p, part) \
+    if (VARIANT > 0) { \
+        (p) ^= tweak1_2_##part; \
+    }
 
 
-class Handle;
-struct GpuContext;
-
-
-class OclWorker : public IWorker
-{
-public:
-    OclWorker(Handle *handle);
-
-protected:
-    inline uint64_t hashCount() const override { return m_hashCount.load(std::memory_order_relaxed); }
-    inline uint64_t timestamp() const override { return m_timestamp.load(std::memory_order_relaxed); }
-
-    void start() override;
-
-private:
-    bool resume(const Job &job);
-    void consumeJob();
-    void save(const Job &job);
-    void setJob();
-    void storeStats();
-
-    const size_t m_id;
-    const size_t m_threads;
-    const xmrig::Algo m_algorithm;
-    GpuContext *m_ctx;
-    Job m_job;
-    Job m_pausedJob;
-    std::atomic<uint64_t> m_hashCount;
-    std::atomic<uint64_t> m_timestamp;
-    uint32_t m_nonce;
-    uint32_t m_pausedNonce;
-    uint64_t m_count;
-    uint64_t m_sequence;
-    uint8_t m_blob[96]; // Max blob size is 84 (75 fixed + 9 variable), aligned to 96. https://github.com/xmrig/xmrig/issues/1 Thanks fireice-uk.
-};
-
-
-#endif /* __OCLWORKER_H__ */
+#endif /* __CRYPTONIGHT_MONERO_H__ */

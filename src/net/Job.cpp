@@ -4,8 +4,9 @@
  * Copyright 2014      Lucas Jones <https://github.com/lucasjones>
  * Copyright 2014-2016 Wolf9466    <https://github.com/OhGodAPet>
  * Copyright 2016      Jay D Dee   <jayddee246@gmail.com>
- * Copyright 2016-2017 XMRig       <support@xmrig.com>
- *
+ * Copyright 2017-2018 XMR-Stak    <https://github.com/fireice-uk>, <https://github.com/psychocrypt>
+ * Copyright 2018      Lee Clagett <https://github.com/vtnerd>
+ * Copyright 2016-2018 XMRig       <https://github.com/xmrig>, <support@xmrig.com>
  *
  *   This program is free software: you can redistribute it and/or modify
  *   it under the terms of the GNU General Public License as published by
@@ -22,6 +23,7 @@
  */
 
 
+#include <assert.h>
 #include <string.h>
 
 
@@ -55,14 +57,33 @@ static inline char hf_bin2hex(unsigned char c)
 }
 
 
-Job::Job(int poolId, bool nicehash) :
+Job::Job() :
+    m_nicehash(false),
+    m_coin(),
+    m_algo(xmrig::CRYPTONIGHT),
+    m_poolId(-2),
+    m_threadId(-1),
+    m_size(0),
+    m_diff(0),
+    m_target(0),
+    m_blob(),
+    m_variant(xmrig::VARIANT_AUTO)
+{
+}
+
+
+Job::Job(int poolId, bool nicehash, int algo, int variant) :
     m_nicehash(nicehash),
+    m_coin(),
+    m_algo(algo),
     m_poolId(poolId),
     m_threadId(-1),
     m_size(0),
     m_diff(0),
-    m_target(0)
+    m_target(0),
+    m_blob()
 {
+    setVariant(variant);
 }
 
 
@@ -94,11 +115,6 @@ bool Job::setBlob(const char *blob)
     if (*nonce() != 0 && !m_nicehash) {
         m_nicehash = true;
     }
-
-#   ifdef XMRIG_PROXY_PROJECT
-    memset(m_rawBlob, 0, sizeof(m_rawBlob));
-    memcpy(m_rawBlob, blob, m_size * 2);
-#   endif
 
     return true;
 }
@@ -136,13 +152,37 @@ bool Job::setTarget(const char *target)
         return false;
     }
 
-#   ifdef XMRIG_PROXY_PROJECT
-    memset(m_rawTarget, 0, sizeof(m_rawTarget));
-    memcpy(m_rawTarget, target, len);
-#   endif
-
     m_diff = toDiff(m_target);
     return true;
+}
+
+
+void Job::setCoin(const char *coin)
+{
+    if (!coin || strlen(coin) > 4) {
+        memset(m_coin, 0, sizeof(m_coin));
+        return;
+    }
+
+    strncpy(m_coin, coin, sizeof(m_coin));
+    m_algo = strcmp(m_coin, "AEON") == 0 ? xmrig::CRYPTONIGHT_LITE : xmrig::CRYPTONIGHT;
+}
+
+
+void Job::setVariant(int variant)
+{
+    switch (variant) {
+    case xmrig::VARIANT_AUTO:
+    case xmrig::VARIANT_NONE:
+    case xmrig::VARIANT_V1:
+        m_variant = static_cast<xmrig::Variant>(variant);
+        break;
+
+    default:
+        assert(false);
+        m_variant = xmrig::VARIANT_AUTO;
+        break;
+    }
 }
 
 
@@ -172,4 +212,10 @@ void Job::toHex(const unsigned char* in, unsigned int len, char* out)
 bool Job::operator==(const Job &other) const
 {
     return m_id == other.m_id && memcmp(m_blob, other.m_blob, sizeof(m_blob)) == 0;
+}
+
+
+bool Job::operator!=(const Job &other) const
+{
+    return m_id != other.m_id || memcmp(m_blob, other.m_blob, sizeof(m_blob)) != 0;
 }
