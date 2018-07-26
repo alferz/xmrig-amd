@@ -4,8 +4,8 @@
  * Copyright 2014      Lucas Jones <https://github.com/lucasjones>
  * Copyright 2014-2016 Wolf9466    <https://github.com/OhGodAPet>
  * Copyright 2016      Jay D Dee   <jayddee246@gmail.com>
- * Copyright 2016-2017 XMRig       <support@xmrig.com>
- *
+ * Copyright 2017-2018 XMR-Stak    <https://github.com/fireice-uk>, <https://github.com/psychocrypt>
+ * Copyright 2016-2018 XMRig       <https://github.com/xmrig>, <support@xmrig.com>
  *
  *   This program is free software: you can redistribute it and/or modify
  *   it under the terms of the GNU General Public License as published by
@@ -22,17 +22,22 @@
  */
 
 
+#include <assert.h>
 #include <chrono>
 #include <math.h>
 #include <memory.h>
 #include <stdio.h>
 
-#include "log/Log.h"
-#include "Options.h"
+
+#include "common/log/Log.h"
+#include "core/Config.h"
+#include "core/Controller.h"
 #include "workers/Hashrate.h"
 
+#include "interfaces/IThread.h"
 
-inline const char *format(double h, char* buf, size_t size)
+
+inline static const char *format(double h, char *buf, size_t size)
 {
     if (isnormal(h)) {
         snprintf(buf, size, "%03.1f", h);
@@ -43,21 +48,28 @@ inline const char *format(double h, char* buf, size_t size)
 }
 
 
-Hashrate::Hashrate(int threads) :
+Hashrate::Hashrate(size_t threads, xmrig::Controller *controller) :
     m_highest(0.0),
-    m_threads(threads)
+    m_threads(threads),
+    m_controller(controller)
 {
     m_counts     = new uint64_t*[threads];
     m_timestamps = new uint64_t*[threads];
     m_top        = new uint32_t[threads];
 
-    for (int i = 0; i < threads; i++) {
-        m_counts[i] = new uint64_t[kBucketSize];
-        m_timestamps[i] = new uint64_t[kBucketSize];
-        m_top[i] = 0;
+    for (size_t i = 0; i < threads; i++) {
+        m_counts[i]     = new uint64_t[kBucketSize]();
+        m_timestamps[i] = new uint64_t[kBucketSize]();
+        m_top[i]        = 0;
+    }
 
-        memset(m_counts[0], 0, sizeof(uint64_t) * kBucketSize);
-        memset(m_timestamps[0], 0, sizeof(uint64_t) * kBucketSize);
+    const int printTime = controller->config()->printTime();
+
+    if (printTime > 0) {
+        uv_timer_init(uv_default_loop(), &m_timer);
+        m_timer.data = this;
+
+       uv_timer_start(&m_timer, Hashrate::onReport, (printTime + 4) * 1000, printTime * 1000);
     }
 }
 
@@ -67,7 +79,7 @@ double Hashrate::calc(size_t ms) const
     double result = 0.0;
     double data;
 
-    for (int i = 0; i < m_threads; ++i) {
+    for (size_t i = 0; i < m_threads; ++i) {
         data = calc(i, ms);
         if (isnormal(data)) {
             result += data;
@@ -88,6 +100,11 @@ double Hashrate::calc2() const
 
 double Hashrate::calc(size_t threadId, size_t ms) const
 {
+    assert(threadId < m_threads);
+    if (threadId >= m_threads) {
+        return nan("");
+    }
+
     using namespace std::chrono;
     const uint64_t now = time_point_cast<milliseconds>(high_resolution_clock::now()).time_since_epoch().count();
 
@@ -145,7 +162,8 @@ void Hashrate::add(size_t threadId, uint64_t count, uint64_t timestamp)
 }
 
 
-void Hashrate::print(int numGPUs)
+
+void Hashrate::print()
 {
     char avg[8];
     char num1[8];
@@ -153,10 +171,22 @@ void Hashrate::print(int numGPUs)
     char num3[8];
     char num4[8];
     
-    double avgHR = calc(ShortInterval) / numGPUs;
+    
+    int numGpus = 0;
+    int currentIndex = -1;
+    for (const xmrig::IThread *thread : m_controller->config()->threads()) {
+         if(currentIndex != thread->index()){
+            currentIndex = thread->index();
+            numGpus++;
+        }
+            
+     }
+    
+    double avgHR = calc(ShortInterval) / numGpus;
 
-    LOG_INFO(Options::i()->colors() ? "\x1B[01;37mavg speed\x1B[0m \x1B[01;36m%s\x1B[0m 10s/60s/15m \x1B[01;36m%s\x1B[0m \x1B[22;36m%s %s \x1B[01;36mH/s\x1B[0m" : "speed 10s/60s/15m %s %s %s H/s",
+    LOG_INFO("\x1B[01;37mavg speed\x1B[0m \x1B[01;36m%s\x1B[0m 10s/60s/15m \x1B[01;36m%s\x1B[0m \x1B[22;36m%s %s \x1B[01;36mH/s\x1B[0m",
              format(avgHR,  avg, sizeof(avg)),
+
              format(calc(ShortInterval),  num1, sizeof(num1)),
              format(calc(MediumInterval), num2, sizeof(num2)),
              format(calc(LargeInterval),  num3, sizeof(num3)),
@@ -164,54 +194,31 @@ void Hashrate::print(int numGPUs)
              );
 }
 
-void Hashrate::printGPU(std::vector<size_t> threads, int gpuId)
-{
-    char num1[8];
-    char num2[8];
-    char num3[8];
-    
-    double shortNum = 0;
-    double mediumNum = 0;
-    double longNum = 0;
-    for(size_t thread : threads){
-        shortNum += calc(thread, ShortInterval);
-        mediumNum += calc(thread, MediumInterval);
-        longNum += calc(thread, LargeInterval);
-    }
 
-    LOG_INFO(Options::i()->colors() ? "\x1B[01;37mGPU %d\x1B[0m 10s/60s/15m \x1B[01;36m%s\x1B[0m \x1B[22;36m%s %s \x1B[01;36mH/s" : "speed 10s/60s/15m %s %s %s H/s",
-        gpuId,
-        format(shortNum, num1, sizeof(num1)),
-        format(mediumNum, num2, sizeof(num2)),
-        format(longNum, num3, sizeof(num3))
-    );
-}
-
-//This function obsolete. Prints individual threads but dont want that.
-void Hashrate::print(size_t threadId, int gpuId)
-{
-    char num1[8];
-    char num2[8];
-    char num3[8];
-
-    LOG_INFO(Options::i()->colors() ? "\x1B[01;37mGPU %d\x1B[0m 10s/60s/15m \x1B[01;36m%s\x1B[0m \x1B[22;36m%s %s \x1B[01;36mH/s" : "speed 10s/60s/15m %s %s %s H/s",
-        gpuId,
-        format(calc(threadId, ShortInterval),  num1, sizeof(num1)),
-        format(calc(threadId, MediumInterval), num2, sizeof(num2)),
-        format(calc(threadId, LargeInterval),  num3, sizeof(num3))
-    );
-}
 
 
 void Hashrate::stop()
 {
+    uv_timer_stop(&m_timer);
 }
 
 
 void Hashrate::updateHighest()
 {
-   double highest = calc(10000);
+   double highest = calc(ShortInterval);
    if (isnormal(highest) && highest > m_highest) {
        m_highest = highest;
    }
+}
+
+
+const char *Hashrate::format(double h, char *buf, size_t size)
+{
+    return ::format(h, buf, size);
+}
+
+
+void Hashrate::onReport(uv_timer_t *handle)
+{
+    static_cast<Hashrate*>(handle->data)->print();
 }

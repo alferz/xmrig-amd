@@ -1,3 +1,38 @@
+# v2.7.3-beta
+- [#145](https://github.com/xmrig/xmrig-amd/issues/145) Added runtime linking with OpenCL ICD, **AMD APP SDK not required anymore**.
+- [#140](https://github.com/xmrig/xmrig-amd/issues/140) `cryptonight-lite/ipbc` replaced to `cryptonight-heavy/tube` for **Bittube (TUBE)**.
+- [#128](https://github.com/xmrig/xmrig-amd/issues/128) Improved `cryptonight/msr` support, removed usage restrictions.
+- Added `cryptonight/rto` (cryptonight variant 1 with IPBC/TUBE mod) variant for **Arto (RTO)** coin.
+- Added `cryptonight/xao` (original cryptonight with bigger iteration count) variant for **Alloy (XAO)** coin.
+- Added option `opencl-loader` for custom path to OpenCL ICD.
+- Vega APU (AMD Ryzen with embedded GPU) now excluded from autoconfig, reason: slow and cause BSOD.
+
+# v2.7.2-beta
+- [#132](https://github.com/xmrig/xmrig-amd/issues/132) Fixed regression, command line option `--opencl-platform` was broken.
+
+# v2.7.1-beta
+- [#130](https://github.com/xmrig/xmrig-amd/issues/130) **Added OpenCL cache support**.
+  - Added config option `cache` and command line option `--no-cache` to allow disable cache.
+- **Added support for new cryptonight-heavy variant xhv** (`cn-heavy/xhv`) for Haven Protocol fork.
+- [#128](https://github.com/xmrig/xmrig-amd/issues/128) **Added support for new cryptonight variant msr** (`cn/msr`) also known as `cryptonight-fast` for Masari fork.
+- [#126](https://github.com/xmrig/xmrig-amd/issues/126) Fixed regression, command line option `--print-platforms` was broken.
+- [#127](https://github.com/xmrig/xmrig-amd/issues/127) Fixed regression, miner was not exit if OpenCL errors happen.
+
+# v2.7.0-beta
+- **Added support for cryptonight-lite variant ipbc** (`cn-lite/ipbc`) for BitTube also was known as IPBC.
+- **Added support for cryptonight variant xtl** (`cn/xtl`) for Stellite.
+- Added [config options](https://github.com/xmrig/xmrig-amd/blob/dev/doc/THREADS.md) `strided_index`, `mem_chunk` and `comp_mode`.
+- Added new detailed hashrate report.
+- Added command line option `--dry-run`.
+
+# v2.6.1
+- Fixed critical bug, in some cases miner was can't recovery connection and switch to failover pool, version 2.5.2 and v2.6.0-beta1 affected.
+- [#499](https://github.com/xmrig/xmrig/issues/499) IPv6 support disabled for internal HTTP API.
+- Added workaround for nicehash.com if you use `cryptonightv7.<region>.nicehash.com` option `variant=1` will be set automatically.
+
+# v2.6.0-beta1
+ - [#476](https://github.com/xmrig/xmrig/issues/476) **Added Cryptonight-Heavy support for Sumokoin ASIC resistance fork.**
+ 
 # v2.5.2
 - [#448](https://github.com/xmrig/xmrig/issues/478) Fixed broken reconnect.
 

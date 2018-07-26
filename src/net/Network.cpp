@@ -31,39 +31,39 @@
 
 
 #include "api/Api.h"
-#include "log/Log.h"
-#include "net/Client.h"
+#include "common/log/Log.h"
+#include "common/net/Client.h"
+#include "common/net/strategies/FailoverStrategy.h"
+#include "common/net/strategies/SinglePoolStrategy.h"
+#include "common/net/SubmitResult.h"
+#include "core/Config.h"
+#include "core/Controller.h"
 #include "net/Network.h"
 #include "net/strategies/DonateStrategy.h"
-#include "net/strategies/FailoverStrategy.h"
-#include "net/strategies/SinglePoolStrategy.h"
-#include "net/SubmitResult.h"
-#include "net/Url.h"
-#include "Options.h"
 #include "workers/Workers.h"
 
 
-Network::Network(const Options *options) :
-    m_options(options),
-    m_donate(nullptr)
+Network::Network(xmrig::Controller *controller) :
+    m_donate(nullptr),
+    m_controller(controller)
 {
     srand(time(0) ^ (uintptr_t) this);
 
     Workers::setListener(this);
 
-    const std::vector<Url*> &pools = options->pools();
+    const std::vector<Pool> &pools = controller->config()->pools();
 
     LOG_NOTICE("Pool size %zi", pools.size());
     
     if (pools.size() > 1) {
-        m_strategy = new FailoverStrategy(pools, options->retryPause(), options->retries(), this);
+        m_strategy = new FailoverStrategy(pools, controller->config()->retryPause(), controller->config()->retries(), this);
     }
     else {
-        m_strategy = new SinglePoolStrategy(pools.front(), options->retryPause(), this);
+        m_strategy = new SinglePoolStrategy(pools.front(), controller->config()->retryPause(), controller->config()->retries(), this);
     }
 
-    if (m_options->donateLevel() > 0) {
-        m_donate = new DonateStrategy(options->donateLevel(), options->pools().front()->user(), options->algorithm(), this);
+    if (controller->config()->donateLevel() > 0) {
+        m_donate = new DonateStrategy(controller->config()->donateLevel(), controller->config()->pools().front().user(), controller->config()->algorithm(), this);
     }
 
     m_timer.data = this;
@@ -103,7 +103,7 @@ void Network::onActive(IStrategy *strategy, Client *client)
 
     m_state.setPool(client->host(), client->port(), client->ip());
 
-    LOG_INFO(m_options->colors() ? "\x1B[01;37muse pool \x1B[01;36m%s:%d \x1B[01;30m%s" : "use pool %s:%d %s", client->host(), client->port(), client->ip());
+    LOG_INFO(isColors() ? "\x1B[01;37muse pool \x1B[01;36m%s:%d \x1B[01;30m%s" : "use pool %s:%d %s", client->host(), client->port(), client->ip());
 }
 
 
@@ -152,26 +152,33 @@ void Network::onResultAccepted(IStrategy *strategy, Client *client, const Submit
     m_state.add(result, error);
 
     if (error) {
-        LOG_INFO(m_options->colors() ? "\x1B[01;31mrejected\x1B[0m (%" PRId64 "/%" PRId64 ") diff \x1B[01;37m%u\x1B[0m \x1B[31m\"%s\"\x1B[0m \x1B[01;30m(%" PRIu64 " ms)"
-                                     : "rejected (%" PRId64 "/%" PRId64 ") diff %u \"%s\" (%" PRIu64 " ms)",
+        LOG_INFO(isColors() ? "\x1B[01;31mrejected\x1B[0m (%" PRId64 "/%" PRId64 ") diff \x1B[01;37m%u\x1B[0m \x1B[31m\"%s\"\x1B[0m \x1B[01;30m(%" PRIu64 " ms)"
+                            : "rejected (%" PRId64 "/%" PRId64 ") diff %u \"%s\" (%" PRIu64 " ms)",
                  m_state.accepted, m_state.rejected, result.diff, error, result.elapsed);
     }
     else {
-        LOG_INFO(m_options->colors() ? "\x1B[01;32maccepted\x1B[0m (%" PRId64 "/%" PRId64 ") actual diff \x1B[01;32m%u\x1B[0m"
+        LOG_INFO(isColors() ? "\x1B[01;32maccepted\x1B[0m (%" PRId64 "/%" PRId64 ") actual diff \x1B[01;32m%u\x1B[0m"
                                      : "accepted (%" PRId64 "/%" PRId64 ") actual diff %u",
                  m_state.accepted, m_state.rejected, result.actualDiff);
+
     }
+}
+
+
+bool Network::isColors() const
+{
+    return m_controller->config()->isColors();
 }
 
 
 void Network::setJob(Client *client, const Job &job, bool donate)
 {
+
     if (m_state.diff < job.diff() || m_state.diff > job.diff()) {
         LOG_INFO("\x1B[01;35mnew diff\x1B[0m from \x1B[01;37m%s:%d\x1B[0m diff \x1B[01;37m%d", client->host(), client->port(), job.diff());
     }
-    // else {
-        // LOG_INFO("new job from %s:%d diff %d", client->host(), client->port(), job.diff());
-    // }
+
+
 
     m_state.diff = job.diff();
     Workers::setJob(job, donate);
