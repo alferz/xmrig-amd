@@ -45,7 +45,6 @@ class ApiRouter : public xmrig::IControllerListener
 {
 public:
     ApiRouter(xmrig::Controller *controller);
-    ~ApiRouter();
 
     void get(const xmrig::HttpRequest &req, xmrig::HttpReply &reply) const;
     void exec(const xmrig::HttpRequest &req, xmrig::HttpReply &reply);
@@ -57,7 +56,7 @@ protected:
 
 private:
     void finalize(xmrig::HttpReply &reply, rapidjson::Document &doc) const;
-    void genId();
+    void genId(const char *id);
     void getConnection(rapidjson::Document &doc) const;
     void getHashrate(rapidjson::Document &doc) const;
     void getIdentify(rapidjson::Document &doc) const;
@@ -67,7 +66,7 @@ private:
     void setWorkerId(const char *id);
     void updateWorkerId(const char *id, const char *previousId);
 
-    char m_id[17];
+    char m_id[32];
     char m_workerId[128];
 
     int m_threads;

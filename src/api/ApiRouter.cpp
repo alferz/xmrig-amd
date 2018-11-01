@@ -39,12 +39,12 @@
 #include "api/ApiRouter.h"
 #include "common/api/HttpReply.h"
 #include "common/api/HttpRequest.h"
+#include "common/cpu/Cpu.h"
 #include "common/crypto/keccak.h"
 #include "common/net/Job.h"
 #include "common/Platform.h"
 #include "core/Config.h"
 #include "core/Controller.h"
-#include "Cpu.h"
 #include "interfaces/IThread.h"
 #include "rapidjson/document.h"
 #include "rapidjson/prettywriter.h"
@@ -71,7 +71,7 @@ ApiRouter::ApiRouter(xmrig::Controller *controller) :
     memset(m_workerId, 0, sizeof(m_workerId));
 
     setWorkerId(controller->config()->apiWorkerId());
-    genId();
+    genId(controller->config()->apiId());
     
     const std::vector<xmrig::IThread *> &threads = controller->config()->threads();
     
@@ -91,10 +91,6 @@ ApiRouter::ApiRouter(xmrig::Controller *controller) :
 
 }
 
-
-ApiRouter::~ApiRouter()
-{
-}
 
 
 void ApiRouter::ApiRouter::get(const xmrig::HttpRequest &req, xmrig::HttpReply &reply) const
@@ -166,9 +162,14 @@ void ApiRouter::finalize(xmrig::HttpReply &reply, rapidjson::Document &doc) cons
 }
 
 
-void ApiRouter::genId()
+void ApiRouter::genId(const char *id)
 {
     memset(m_id, 0, sizeof(m_id));
+
+    if (id && strlen(id) > 0) {
+        strncpy(m_id, id, sizeof(m_id) - 1);
+        return;
+    }
 
     uv_interface_address_t *interfaces;
     int count = 0;
@@ -181,11 +182,13 @@ void ApiRouter::genId()
         if (!interfaces[i].is_internal && interfaces[i].address.address4.sin_family == AF_INET) {
             uint8_t hash[200];
             const size_t addrSize = sizeof(interfaces[i].phys_addr);
-            const size_t inSize   = strlen(APP_KIND) + addrSize;
+            const size_t inSize   = strlen(APP_KIND) + addrSize + sizeof(uint16_t);
+            const uint16_t port   = static_cast<uint16_t>(m_controller->config()->apiPort());
 
             uint8_t *input = new uint8_t[inSize]();
-            memcpy(input, interfaces[i].phys_addr, addrSize);
-            memcpy(input + addrSize, APP_KIND, strlen(APP_KIND));
+            memcpy(input, &port, sizeof(uint16_t));
+            memcpy(input + sizeof(uint16_t), interfaces[i].phys_addr, addrSize);
+            memcpy(input + sizeof(uint16_t) + addrSize, APP_KIND, strlen(APP_KIND));
 
             xmrig::keccak(input, inSize, hash);
             Job::toHex(hash, 8, m_id);
@@ -262,10 +265,10 @@ void ApiRouter::getMiner(rapidjson::Document &doc) const
     auto &allocator = doc.GetAllocator();
 
     rapidjson::Value cpu(rapidjson::kObjectType);
-    cpu.AddMember("brand",   rapidjson::StringRef(Cpu::brand()), allocator);
-    cpu.AddMember("aes",     Cpu::hasAES(), allocator);
-    cpu.AddMember("x64",     Cpu::isX64(), allocator);
-    cpu.AddMember("sockets", Cpu::sockets(), allocator);
+    cpu.AddMember("brand",   rapidjson::StringRef(xmrig::Cpu::info()->brand()), allocator);
+    cpu.AddMember("aes",     xmrig::Cpu::info()->hasAES(), allocator);
+    cpu.AddMember("x64",     xmrig::Cpu::info()->isX64(), allocator);
+    cpu.AddMember("sockets", xmrig::Cpu::info()->sockets(), allocator);
 
     doc.AddMember("version",      APP_VERSION, allocator);
     doc.AddMember("kind",         APP_KIND, allocator);
@@ -340,13 +343,16 @@ void ApiRouter::getThreads(rapidjson::Document &doc) const
     const std::vector<xmrig::IThread *> &threads = m_controller->config()->threads();
     rapidjson::Value list(rapidjson::kArrayType);
 
+    size_t i = 0;
     for (const xmrig::IThread *thread : threads) {
         rapidjson::Value value = thread->toAPI(doc);
 
         rapidjson::Value hashrate(rapidjson::kArrayType);
-        hashrate.PushBack(normalize(hr->calc(thread->index(), Hashrate::ShortInterval)),  allocator);
-        hashrate.PushBack(normalize(hr->calc(thread->index(), Hashrate::MediumInterval)), allocator);
-        hashrate.PushBack(normalize(hr->calc(thread->index(), Hashrate::LargeInterval)),  allocator);
+        hashrate.PushBack(normalize(hr->calc(i, Hashrate::ShortInterval)),  allocator);
+        hashrate.PushBack(normalize(hr->calc(i, Hashrate::MediumInterval)), allocator);
+        hashrate.PushBack(normalize(hr->calc(i, Hashrate::LargeInterval)),  allocator);
+
+        i++;
 
         value.AddMember("hashrate", hashrate, allocator);
         list.PushBack(value, allocator);
